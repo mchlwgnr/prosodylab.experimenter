@@ -2,41 +2,59 @@
 
 function [playList,nTrials]=generatePlaylist(items,pList,experimentNames)
 
-% design: Should be specified in column 'design' in experiment spreadsheet
-% There are currently 6 options. 'Blocked' might not fully work yet:
-designs={'BetweenParticipants' 'Blocked' 'Fixed'  'LatinSquare' 'Random' 'WithinParticipants'};
-% decides how the trials will be ordered
-% and whether it's latin square or not
-% options:
+% % design: Should be specified in column 'design' in experiment spreadsheet
+% Options:
 %
-% BetweenParticipants
-%     Each participant see sonly one condition.
-%     number of items has to be divisible by number of conditions
+designs={'Between' 'Blocked' 'BlockedFixed' 'Fixed'  'LatinSquare' 'Random' 'Within'};
+%
+% designs requiring spreadsheet to be ordered by item and then condition:
+pickyDesigns={'LatinSquare' 'Within'};
+%
+%
+% Between
+%     Each participant sees only one condition.
+%     Mumber of items has to be divisible by number of conditions
 %     There will be as many playlists (=groups of participants)
 %     as there are conditions
 % Blocked:
 %     Each participant see all conditions.
-%     number of items has to be divisible by number of conditions
+%     There will be a separate block for every condition.
+%     Blocks are in random order.
 %     There will be as many playlists (=groups of participants)
 %     as there are conditions, which will reflect which condition was run
 %     in the first block
+% BlockedFixed:
+%     Each participant see all conditions.
+%     There will be a separate block for every condition.
+%     Blocks are in fixed order (condition 1 first), order within is random.
+%     Number of items has to be divisible by number of conditions
 % Fixed (Fixed Order; No Randomization):
 %     Play all trials in the order of spreadsheet
 %     column "condition" and "item" will be ignored
 % LatinSquare:
 %     Only one condition from each item per subject
-%     number of items has to be divisible by number of conditions
+%     Equal number of trials from each condition.
+%     Number of items has to be divisible by number of conditions.
+%     Order is pseudo-random, conditions can only be repeated once.
 %     There will be as many playlists (=groups of participants)
 %     as there are conditions
 % Random (completely random):
-%     Play all trials in random order
+%     Play all trials in completely random order
 %     column "condition" and "item" will be ignored
-% WithinParticipants:
-%     Every condition from every item for each participant
-%     Items aren't repeated more than once (in fact, a repetition of same
-%     item can only happen once per experiment)
+% Within:
+%     Everyone see all conditison from all items.
+%     Trials are randomized in blocks, such that each block corresponds
+%     to a latin square set up (one condition from each item, equal number
+%     from each condition). 
+%     Order within block is pseudo-random, conditions can only be repeated once.
+%     order of blocks are randomized. 
+%     Number of items has to be divisible by number of conditions
+%     First item=n/nCondition trials can be analyzed as latin square design
+%     experiment.
+%     Items aren't repeated more than once at transitions between blocks.
 %     Conditions can only be repeated once
 %     Number of items has to be divisible by number of conditions
+
 
 nExperiments=length(unique(experimentNames));
 
@@ -45,6 +63,28 @@ for k=1:nExperiments
     exper=k;
     trial=0;
     design=items{exper}(1).design;
+    
+    % sort by item and then condition if design requires it
+    if ismember(design,pickyDesigns)
+
+        % identify item and condition columns:
+        itemFields=fieldnames(items{exper});
+        itemColumn=find(ismember(itemFields,'item'));
+        conditionColumn=find(ismember(itemFields,'condition'));
+        
+        % convert to cell and then to matrix, in order to sort:
+        itemSorted=struct2cell(items{exper});
+        sz = size(itemSorted);
+        itemSorted=reshape(itemSorted, sz(1), []);
+        itemSorted=itemSorted';
+        % sort by item and then by condition (opposite order necessary):
+        itemSorted = sortrows(itemSorted, conditionColumn);
+        itemSorted = sortrows(itemSorted, itemColumn);
+        % convert back to cell array and then structure:
+        itemSorted=reshape(itemSorted', sz);
+        itemSorted = cell2struct(itemSorted, itemFields, 1);
+
+    end
     
     if strcmp(design,'Fixed')
         playList{exper}=items{exper};
@@ -61,13 +101,10 @@ for k=1:nExperiments
         for i=1:elength
             newList(i)=playList{exper}(rTrial(i));
         end
-        playList{exper}=newlist;
+        playList{exper}=newList;
         
-    elseif strcmp(design,'WithinParticipants')
-        % WithingParticipants: pseudo-random, Each Condition from Each Item for Each Participant
-        % each block like latin square design with one condition from each
-        % item; blocks are ordered according to pList (should be balanced
-        % across participants).
+    elseif strcmp(design,'Within')
+        %
         nItems=max([items{exper}(:).item]);
         nConditions=max([items{exper}(:).condition]);
         
@@ -75,7 +112,7 @@ for k=1:nExperiments
             error(['For design ' design ', number of items (' num2str(nItems) ') has to be divisible by number of conditions(' num2str(nConditions) ')!']);
         end
         
-        % Create Latin-Square-Style Playlists with randomized item selection
+        % Create several Latin-Square-Style Playlists with randomized item selection
         % and order Playlists in Random Order
         nBlocks=nItems/nConditions;
         rCondition=randperm(nConditions);
@@ -142,9 +179,13 @@ for k=1:nExperiments
         
     elseif strcmp(design,'LatinSquare')
         % Latin Square: One condition from each item for each participant
-            
+        
         nItems=max([items{exper}(:).item]);
         nConditions=max([items{exper}(:).condition]);
+        
+        if round(nItems/nConditions)~=nItems/nConditions
+            error(['For design ' design ', number of items (' num2str(nItems) ') has to be divisible by number of conditions(' num2str(nConditions) ')!']);
+        end
         
         %
         nBlocks=nItems/nConditions;
@@ -196,8 +237,7 @@ for k=1:nExperiments
         
         playList{exper}=newlist;
         nTrials(exper)=nItems;
-        
-        
+         
     elseif strcmp(design,'Between')
         %Between: Every subject sees only one condition
         
@@ -231,6 +271,41 @@ for k=1:nExperiments
         %Loop through items
         for j=1:nConditions
             selectCondition=mod(j+pList(exper)-1,nConditions)+1;
+            for i=1:nItems
+                selectItem=i;
+                trial=(j-1)*nItems+i;
+                index=selectItem*nConditions-selectCondition+1;
+                playList{exper}(trial)=items{exper}(index);
+            end
+        end
+        
+        rCond=0;
+        while rCond~=pList(exper)
+            rCond=randperm(nConditions);
+        end
+        
+        newlist=items{exper}(1);
+        for j=1:nConditions
+            selectCondition=rCond(j);
+            rTrial=randperm(nItems);
+            for i=1:nItems
+                newTrial=(j-1)*nItems+i;
+                trial=(selectCondition-1)*nItems+rTrial(i);
+                newList(newTrial)=playList{exper}(trial);
+            end
+        end
+        
+        playList{exper}=newList;
+        nTrials(exper)=nConditions*nItems;
+        
+    elseif strcmp(design,'BlockedFixed')
+        
+        nItems=max([items{exper}(:).item]);
+        nConditions=max([items{exper}(:).condition]);
+        
+        %Loop through items
+        for j=1:nConditions
+            selectCondition=j;
             for i=1:nItems
                 selectItem=i;
                 trial=(j-1)*nItems+i;

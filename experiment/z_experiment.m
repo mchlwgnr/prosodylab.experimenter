@@ -1,62 +1,84 @@
-%Purpose: Main method for experiment
+% Main experiment method
+
+commandwindow
+
+close all
+clear all
+
+clc
 
 % item file (should be a tab-separated files, encoded in UTF-8)
 % only columns that are labeled in the header row will be read into a data structure
 
-itemFile='doff.txt';
+itemFile='msvt.txt';
 
 %Input and Output device (your present choice is displayed when you run
 %script.
 % You can also check which output devices there are
 % by using the command devices = PsychPortAudio('GetDevices')
-%(unnecessary to worry about if you don't want to record sounds)
-%default outputdevice: use ''
-%(unnecessary to worry about if you don't want to play sounds)
+% (unnecessary to worry about if you don't want to record sounds)
+% default outputdevice: use ''
+% (unnecessary to worry about if you don't want to play sounds)
 
-% settings for macleft: both should be '5'
-% settings for mac laptop: usually '0' for input, '2' for output
+% settings for mac mini with USB: both should be '1'
+% settings for mac laptop: usually '0' for input, '1' for default output
+
 settings.outputdevice=1;
 settings.inputdevice=0;
 
-% design: Should be specified in column 'design' in experiment spreadsheet
-% There are currently 6 options. 'Blocked' might not fully work yet:
-designs={'BetweenParticipants' 'Blocked' 'Fixed'  'LatinSquare' 'Random' 'WithinParticipants'};
-% decides how the trials will be ordered
-% and whether it's latin square or not
-% options:
+% Design: Needs to be specified in column 'design' in experiment spreadsheet
+% Options:
 %
-% BetweenParticipants
-%     Each participant see sonly one condition.
-%     number of items has to be divisible by number of conditions
+designs={'Between' 'Blocked' 'BlockedFixed' 'Fixed'  'LatinSquare' 'Random' 'Within'};
+%
+%
+% Between
+%     Each participant sees only one condition.
+%     Mumber of items has to be divisible by number of conditions
 %     There will be as many playlists (=groups of participants)
 %     as there are conditions
 % Blocked:
 %     Each participant see all conditions.
-%     number of items has to be divisible by number of conditions
+%     There will be a separate block for every condition.
+%     Blocks are in random order.
 %     There will be as many playlists (=groups of participants)
 %     as there are conditions, which will reflect which condition was run
 %     in the first block
+% BlockedFixed:
+%     Each participant see all conditions.
+%     There will be a separate block for every condition.
+%     Blocks are in fixed order (condition 1 first), order within is random.
+%     Number of items has to be divisible by number of conditions
 % Fixed (Fixed Order; No Randomization):
 %     Play all trials in the order of spreadsheet
 %     column "condition" and "item" will be ignored
 % LatinSquare:
 %     Only one condition from each item per subject
-%     number of items has to be divisible by number of conditions
+%     Equal number of trials from each condition.
+%     Number of items has to be divisible by number of conditions.
+%     Order is pseudo-random, conditions can only be repeated once.
 %     There will be as many playlists (=groups of participants)
 %     as there are conditions
 % Random (completely random):
-%     Play all trials in random order
+%     Play all trials in completely random order
 %     column "condition" and "item" will be ignored
-% WithinParticipants:
-%     Every condition from every item for each participant
-%     Items aren't repeated more than once (in fact, a repetition of same
-%     item can only happen once per experiment)
-%     Conditions can only be repeated once
+% Within:
+%     Everyone see all conditison from all items.
+%     Trials are randomized in blocks, such that each block corresponds
+%     to a latin square set up (one condition from each item, equal number
+%     from each condition). 
+%     Order within block is pseudo-random, conditions can only be repeated once.
+%     order of blocks are randomized. 
+%     Number of items has to be divisible by number of conditions
+%     First item=n/nCondition trials can be analyzed as latin square design
+%     experiment.
+%     Items aren't repeated more than once at transitions between blocks.
+%     Conditions can only be repeated once.
 %     Number of items has to be divisible by number of conditions
 
 % Settings
 
-% randomize order of experiments within a session if there are multiple
+% randomize order of experiments within a session, if there are multiple
 % ones
 randomizeOrderExperiments=true;
 
@@ -89,6 +111,7 @@ settings.message ='Please read the sentence silently. Click any key when you''re
 settings.message2 ='Please say the sentence out loud now. Press any key when you''re done recording!';
 settings.message3 ='Press any key when you''re ready for the next trial!';
 settings.message4 ='Press any key when you''re ready for the next sentence!';
+settings.message5 ='Now say the same sentence, but faster!';
 settings.retrialMessage ='Do you want to rerecord (y/n)?';
 settings.retrialMessage2 ='Ok! Press a key when you''ready to repeat the trial!';
 
@@ -112,6 +135,11 @@ settings.additionalColNames={'participant','playlist','experimentTrial','session
 % Other Audio Settings
 %
 
+settings.samplingFrequency=22050;
+settings.maxsecs=300;
+settings.voiceTrigger=0.05;
+settings.paceDelay=1; % in seconds
+
 % unify key names across operating systems
 KbName('UnifyKeyNames');
 
@@ -129,13 +157,6 @@ settings.acceptedkeys = {'1!','2@','3#','4$','5%','6^','7&','8*','9(','0)',...
     'RETURN','DELETE','ESCAPE','ENTER','1','2','3','4','5','6','7',...
     '8','9','0'};
 
-settings.sampfreq=22050;
-settings.maxsecs=300;
-settings.voicetrigger=0;
-
-commandwindow
-
-close all
 
 addpath('prosodylabscripts');
 
@@ -174,7 +195,7 @@ end
 %  -------------------------
 %
 
-% Read in itesm and set up experiments and sessions
+% Read in items and set up experiments and sessions
 
 [allItems,columnNames]=tdfimport([settings.path_items itemFile]);
 
@@ -239,13 +260,16 @@ responsesFilename=[settings.path_results strjoin(experimentNames,'_') '_response
 
 if ~exist(responsesFilename,'file')
     
-    
     additionalNames=settings.additionalColNames;
     
     % add columnname for recorded file
     if isfield(items{i},'record')
-        if ismember('y',unique({items{i}(:).record}))
+        if max(ismember({'Yes','y','yes','YES','memorized','Memorized'},unique({items{i}(:).record})))==1
             additionalNames=[ additionalNames,'recordedFile' ];
+        elseif max(ismember({'twice','Twice'},unique({items{i}(:).record})))==1
+            additionalNames=[ additionalNames,'recordedFile','secondRecordFile' ];
+        elseif max(ismember({'paced','Paced'},unique({items{i}(:).record})))==1
+            additionalNames=[ additionalNames,'timeToTrigger','recordedFile' ];
         end
     end
     
@@ -260,6 +284,7 @@ if ~exist(responsesFilename,'file')
         end
         
     end
+    
     
     % add columnname for end time
     additionalNames = [additionalNames, 'trialDuration','date','trialStart','trialEnd'];
@@ -314,26 +339,25 @@ for i=1:nSessions
         disp('');
         
         
-        % check whether all contextFiles and answerFiles exist
-        
-          if isfield(playList{exper}(1),'contextFile')
+        if isfield(playList{exper}(1),'contextFile')
              existingContextFiles=extractfield(dir([settings.path_contexts]),'name');
              contextFiles=extractfield(playList{exper}(:),'contextFile');
-             missingFiles=playList{exper}(~ismember(contextFiles,existingContextFiles));
-             if size(missingFiles,2)==0
-                % nice!
-             else
-                 % problem!
+             if min(ismember(contextFiles,existingContextFiles))==0
+                disp('Not all context files found in folder');
+                disp('');
+                disp(['Missing files:' contextFiles(~ismember(contextFiles,existingContextFiles)) ]);
+                 error(['Add missing context files or fix name! (Path: ' settings.path_contexts ')']);
              end
          end
          
          if isfield(playList{exper}(1),'answerFile')
              existingAnswerFiles=extractfield(dir([settings.path_answers]),'name');
              answerFiles=extractfield(playList{exper}(:),'answerFile');
-             if min(ismember(answerFiles,existingAnswerFiles))==1
-                % nice!
-             else
-                 % problem!
+             if min(ismember(answerFiles,existingAnswerFiles))==0
+                disp('Not all answer files found in folder');
+                disp('');
+                disp(['Missing files:' answerFiles(~ismember(answerFiles,existingContextFiles)) ]);
+                error(['Add missing context files or fix name! (Path: ' settings.path_answers ')']);
              end
          end
         
@@ -361,8 +385,6 @@ ws = doScreen(settings);
 % Run Experiment
 for i=1:nSessions
     % for each session, run RunExp
-    
-    
     
     % Making sure font settings are correct
     Screen('Preference', 'TextRenderer', 1 );
